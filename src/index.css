@@ -1,0 +1,77 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  :root {
+    --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  }
+
+  body {
+    font-family: var(--font-sans);
+  }
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+.animate-blink {
+  animation: blink 1s step-end infinite;
+}
+
+/* Bioluminescent soft glow utilities */
+.glow-mint {
+  box-shadow: 0 0 35px -8px rgba(110, 231, 183, 0.45);
+}
+
+.glow-blush {
+  box-shadow: 0 0 35px -8px rgba(244, 114, 182, 0.4);
+}
+
+.glow-pearl {
+  box-shadow: 0 0 45px -10px rgba(255, 255, 255, 0.7);
+}
+
+.glassmorphic {
+  background-color: rgba(255, 255, 255, 0.42);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.65);
+}
+
+.glass-card {
+  background-color: rgba(255, 255, 255, 0.45);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.65);
+}
+
+@keyframes cursorBlink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+.animate-cursor {
+  animation: cursorBlink 1s step-start infinite;
+}
+
+/* Custom scanner reticle animations */
+@keyframes scanline {
+  0% { transform: translateY(0%); opacity: 0.2; }
+  50% { opacity: 0.9; }
+  100% { transform: translateY(320px); opacity: 0.2; }
+}
+
+.animate-scanline {
+  animation: scanline 2.2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+@keyframes pulseGlow {
+  0%, 100% { transform: scale(1); opacity: 0.8; }
+  50% { transform: scale(1.08); opacity: 0.4; }
+}
+
+.animate-pulse-glow {
+  animation: pulseGlow 2.8s ease-in-out infinite;
+}

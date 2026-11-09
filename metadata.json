@@ -1,0 +1,6 @@
+{
+  "name": "GlycoLens Health",
+  "description": "An AI-powered nutrition, step, and metabolic tracker that analyzes food photos for complete macro details and tracks calories burned through walking.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
