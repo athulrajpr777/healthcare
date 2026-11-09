@@ -11,6 +11,7 @@ export default function App() {
   // Global State
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
   const [userName, setUserName] = useState<string>('Athul Raj P. R.');
+  const [userEmail, setUserEmail] = useState<string>('athulrajpr777@gmail.com');
   const [dailySteps, setDailySteps] = useState<number>(7420);
   const [savedFoods, setSavedFoods] = useState<MockFoodItem[]>([
     mockFoodDatabase[2], // "Avocado Salad"
@@ -79,8 +80,9 @@ export default function App() {
   if (!isLoggedIn) {
     return (
       <LoginScreen
-        onLogin={(name) => {
-          setUserName(name || 'Athul Raj P. R.');
+        onLogin={(name, email) => {
+          setUserName(name || 'Health Member');
+          setUserEmail(email || 'member@glycolens.health');
           setIsLoggedIn(true);
         }}
       />
@@ -93,6 +95,7 @@ export default function App() {
       {/* Top Fixed Navbar */}
       <GlycoLensNavbar
         userName={userName}
+        userEmail={userEmail}
         onLogout={() => setIsLoggedIn(false)}
         onScanClick={scrollToLens}
       />
