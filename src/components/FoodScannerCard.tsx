@@ -19,6 +19,7 @@ export const FoodScannerCard: React.FC<FoodScannerCardProps> = ({ onSaveToAnalyt
   const [isCameraActive, setIsCameraActive] = useState(false);
   const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
   const [cameraError, setCameraError] = useState<string | null>(null);
+  const [aiError, setAiError] = useState<string | null>(null);
   const [analysisSource, setAnalysisSource] = useState<string>('gemini-3.8-flash');
   const [aiConfidence, setAiConfidence] = useState<number>(95);
   const [metabolicAdvice, setMetabolicAdvice] = useState<string>('');
@@ -37,6 +38,7 @@ export const FoodScannerCard: React.FC<FoodScannerCardProps> = ({ onSaveToAnalyt
   // Camera Management
   const startCamera = async () => {
     setCameraError(null);
+    setAiError(null);
     setIsCameraActive(true);
     try {
       if (streamRef.current) {
@@ -108,18 +110,18 @@ export const FoodScannerCard: React.FC<FoodScannerCardProps> = ({ onSaveToAnalyt
     setSelectedFile(imageDataUrl);
     setIsScanning(true);
     setScanResult(null);
+    setAiError(null);
     setScanStepText('Deconstructing spatial food geometry & plate boundary...');
 
     const stepTimer1 = setTimeout(() => {
-      setScanStepText('Gemini 3.8 Flash Vision: Extracting ingredients & portion density...');
-    }, 600);
+      setScanStepText('Gemini Vision AI: Extracting ingredients & portion density...');
+    }, 700);
 
     const stepTimer2 = setTimeout(() => {
       setScanStepText('Synthesizing glycemic index & postprandial insulin response...');
-    }, 1300);
+    }, 1500);
 
     try {
-      // Call backend API with image data
       const res = await fetch('/api/analyze-meal', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -131,51 +133,29 @@ export const FoodScannerCard: React.FC<FoodScannerCardProps> = ({ onSaveToAnalyt
       clearTimeout(stepTimer1);
       clearTimeout(stepTimer2);
 
-      if (responseData.success && responseData.data) {
-        setAnalysisSource(responseData.source || 'gemini-3.8-flash');
-        setAiConfidence(responseData.data.confidence || 95);
-        setMetabolicAdvice(
-          responseData.data.advice ||
-            'Consider a 10-minute walk post-meal to attenuate the blood glucose peak.'
-        );
-        setScanResult(responseData.data);
-      } else {
-        throw new Error('Analysis API failed');
+      if (!res.ok || !responseData.success || !responseData.data) {
+        throw new Error(responseData?.error || 'AI vision analysis returned an error.');
       }
-    } catch (err) {
-      console.warn('Backend Gemini API fallback triggered:', err);
-      // Smart Fallback if server call fails
-      const fallbackItem = smartLocalAnalysis(fileName, imageDataUrl);
-      setAnalysisSource('smart-heuristic');
-      setAiConfidence(88);
-      setMetabolicAdvice('Balanced nutrient profile observed. Light post-meal movement recommended.');
-      setScanResult(fallbackItem);
+
+      setAnalysisSource(responseData.source || 'gemini-3.8-flash');
+      setAiConfidence(responseData.data.confidence || 95);
+      setMetabolicAdvice(
+        responseData.data.advice ||
+          'Consider a 10-minute walk post-meal to attenuate the blood glucose peak.'
+      );
+      setScanResult(responseData.data);
+    } catch (err: any) {
+      clearTimeout(stepTimer1);
+      clearTimeout(stepTimer2);
+      console.error('Meal AI analysis failed:', err);
+      setAiError(err?.message || 'Unable to analyze meal with Gemini AI. Please try again.');
     } finally {
       setIsScanning(false);
     }
   };
 
-  const smartLocalAnalysis = (fileName?: string, imageUrl?: string): MockFoodItem => {
-    const lower = (fileName || '').toLowerCase();
-    if (lower.includes('salad') || lower.includes('avocado')) {
-      return mockFoodDatabase[2];
-    }
-    if (lower.includes('dosa')) {
-      return mockFoodDatabase[1];
-    }
-    if (lower.includes('chicken') || lower.includes('meat')) {
-      return mockFoodDatabase[3];
-    }
-    if (lower.includes('pasta') || lower.includes('spaghetti')) {
-      return mockFoodDatabase[0];
-    }
-    // Pick random item
-    const idx = Math.floor(Math.random() * mockFoodDatabase.length);
-    return { ...mockFoodDatabase[idx], imageUrl: imageUrl || mockFoodDatabase[idx].imageUrl };
-  };
-
   const handleScanPreset = (food: MockFoodItem) => {
-    analyzePhotoWithAI(food.imageUrl, food.name);
+    analyzePhotoWithAI(food.imageUrl || '', food.name);
   };
 
   const handleSave = () => {
@@ -193,6 +173,7 @@ export const FoodScannerCard: React.FC<FoodScannerCardProps> = ({ onSaveToAnalyt
     setSelectedFile(null);
     setScanResult(null);
     setIsScanning(false);
+    setAiError(null);
     stopCamera();
   };
 
@@ -214,7 +195,7 @@ export const FoodScannerCard: React.FC<FoodScannerCardProps> = ({ onSaveToAnalyt
                 The Lens (AI Food Scanner)
               </h2>
               <span className="text-[10px] uppercase font-bold text-emerald-800 bg-emerald-100/70 border border-emerald-200/60 px-2 py-0.5 rounded-full">
-                Gemini 3.8 Vision
+                Gemini Vision AI
               </span>
             </div>
             <p className="text-xs text-neutral-500">
@@ -223,7 +204,7 @@ export const FoodScannerCard: React.FC<FoodScannerCardProps> = ({ onSaveToAnalyt
           </div>
         </div>
 
-        {scanResult && (
+        {(scanResult || selectedFile) && (
           <button
             onClick={handleReset}
             className="self-start sm:self-auto text-xs font-medium text-neutral-600 hover:text-neutral-900 flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/70 hover:bg-white border border-white/80 transition-colors cursor-pointer shadow-xs"
@@ -248,6 +229,28 @@ export const FoodScannerCard: React.FC<FoodScannerCardProps> = ({ onSaveToAnalyt
           <button onClick={() => setCameraError(null)} className="text-rose-500 hover:text-rose-800">
             <X className="w-4 h-4" />
           </button>
+        </div>
+      )}
+
+      {aiError && (
+        <div className="mb-4 p-3.5 rounded-2xl bg-rose-50 border border-rose-200 text-xs text-rose-700 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-rose-500 shrink-0" />
+            <span>{aiError}</span>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            {selectedFile && (
+              <button
+                onClick={() => analyzePhotoWithAI(selectedFile, 'Retry Scan')}
+                className="px-2.5 py-1 rounded-lg bg-rose-600 text-white font-semibold hover:bg-rose-500 cursor-pointer"
+              >
+                Retry
+              </button>
+            )}
+            <button onClick={() => setAiError(null)} className="text-rose-500 hover:text-rose-800 cursor-pointer">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       )}
 
@@ -444,22 +447,36 @@ export const FoodScannerCard: React.FC<FoodScannerCardProps> = ({ onSaveToAnalyt
                   {/* Dish Header */}
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-neutral-200/80 gap-3">
                     <div>
-                      <span className="text-[11px] font-semibold text-emerald-800 bg-emerald-100/80 px-2.5 py-0.5 rounded-full border border-emerald-200 inline-flex items-center gap-1.5 mb-1.5">
-                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                        <span>
-                          {analysisSource === 'gemini-3.8-flash'
-                            ? `Gemini 3.8 Flash Recognized (${aiConfidence}% confidence)`
-                            : 'Optical Biomarker Decomposed'}
+                      <div className="flex flex-wrap items-center gap-2 mb-1.5">
+                        <span className="text-[11px] font-semibold text-emerald-800 bg-emerald-100/80 px-2.5 py-0.5 rounded-full border border-emerald-200 inline-flex items-center gap-1.5">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                          <span>
+                            {analysisSource === 'gemini-3.8-flash'
+                              ? `Gemini Vision AI Recognized (${aiConfidence}% confidence)`
+                              : 'Optical Biomarker Decomposed'}
+                          </span>
                         </span>
-                      </span>
+                        {scanResult.sugarSpikeLevel && (
+                          <span
+                            className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border inline-flex items-center gap-1 ${
+                              scanResult.sugarSpikeLevel.toLowerCase() === 'low'
+                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                : scanResult.sugarSpikeLevel.toLowerCase() === 'high'
+                                ? 'bg-rose-50 text-rose-700 border-rose-200'
+                                : 'bg-amber-50 text-amber-700 border-amber-200'
+                            }`}
+                          >
+                            <Zap className="w-3 h-3" />
+                            <span>Sugar Spike: {scanResult.sugarSpikeLevel}</span>
+                          </span>
+                        )}
+                      </div>
                       <h3 className="text-2xl sm:text-3xl font-semibold tracking-tight text-[#1C2E1E]">
                         {scanResult.name}
                       </h3>
-                      {scanResult.fiber && (
-                        <span className="text-xs text-neutral-500 mt-0.5 block">
-                          GI Index ~{scanResult.fiber ? 30 : 50} · Prebiotic Soluble Density
-                        </span>
-                      )}
+                      <span className="text-xs text-neutral-500 mt-0.5 block">
+                        GI Index ~{scanResult.glycemicIndex ?? 35} · Fiber {scanResult.fiber || '5g'}
+                      </span>
                     </div>
 
                     <div className="sm:text-right shrink-0">

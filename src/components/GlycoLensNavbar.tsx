@@ -40,6 +40,12 @@ export const GlycoLensNavbar: React.FC<GlycoLensNavbarProps> = ({
           <a href="#lens-section" className="hover:text-black transition-colors">
             Food Scanner
           </a>
+          <a href="#ai-assistant-section" className="hover:text-black transition-colors">
+            Nutritional AI
+          </a>
+          <a href="#ai-coach-section" className="hover:text-black transition-colors">
+            AI Coach
+          </a>
           <a href="#tracker-section" className="hover:text-black transition-colors">
             Step Tracker & Analytics
           </a>

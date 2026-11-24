@@ -4,12 +4,14 @@ import { Sparkles, Camera, ArrowDown, Footprints, Flame, Activity } from 'lucide
 
 interface InteractiveHeroSectionProps {
   steps: number;
+  metabolicScore?: number;
   onScanClick: () => void;
   onScrollDown: () => void;
 }
 
 export const InteractiveHeroSection: React.FC<InteractiveHeroSectionProps> = ({
   steps,
+  metabolicScore = 89,
   onScanClick,
   onScrollDown,
 }) => {
@@ -165,7 +167,7 @@ export const InteractiveHeroSection: React.FC<InteractiveHeroSectionProps> = ({
                 <span>Metabolic Aura</span>
               </div>
               <div className="text-xl font-bold text-emerald-700 tabular-nums">
-                89 <span className="text-xs font-normal text-neutral-500">/ 100</span>
+                {metabolicScore} <span className="text-xs font-normal text-neutral-500">/ 100</span>
               </div>
             </div>
           </div>

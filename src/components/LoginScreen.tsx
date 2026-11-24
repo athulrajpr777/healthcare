@@ -1,26 +1,49 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Lock, Mail, Sparkles, User, ShieldCheck, X, Check, ArrowRight } from 'lucide-react';
+import { Lock, Mail, Sparkles, User, ShieldCheck, AlertCircle, ArrowRight } from 'lucide-react';
+import { signInWithGoogle } from '../firebase';
 
 interface LoginScreenProps {
-  onLogin: (userName: string, userEmail?: string) => void;
+  onLogin: (userName: string, userEmail?: string, userPhoto?: string) => void;
 }
 
 export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [isGoogleModalOpen, setIsGoogleModalOpen] = useState(false);
-  const [customGoogleEmail, setCustomGoogleEmail] = useState('');
-  const [customGoogleName, setCustomGoogleName] = useState('');
-  const [googleStep, setGoogleStep] = useState<'picker' | 'custom'>('picker');
+  const [isLoadingGoogle, setIsLoadingGoogle] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
 
-  // Handle standard email/password submit
+  // Real Firebase Google Sign-In
+  const handleFirebaseGoogleLogin = async () => {
+    setAuthError(null);
+    setIsLoadingGoogle(true);
+    try {
+      const user = await signInWithGoogle();
+      const displayName = user.displayName || user.email?.split('@')[0] || 'Google User';
+      const userEmail = user.email || 'user@gmail.com';
+      const photoURL = user.photoURL || undefined;
+      onLogin(displayName, userEmail, photoURL);
+    } catch (err: any) {
+      console.warn('Firebase Google Auth error:', err);
+      if (err.code === 'auth/popup-closed-by-user') {
+        setAuthError('Sign-in cancelled. Please click "Continue with Google" again.');
+      } else if (err.code === 'auth/popup-blocked') {
+        setAuthError('Pop-up window was blocked by your browser. Please allow pop-ups for this site.');
+      } else {
+        setAuthError(err.message || 'Failed to authenticate with Google. You can also sign in below.');
+      }
+    } finally {
+      setIsLoadingGoogle(false);
+    }
+  };
+
+  // Optional manual email/password submit
   const handleEmailSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    setAuthError(null);
     let displayName = fullName.trim();
     if (!displayName && email) {
-      // derive nice display name from email (e.g. "john.doe" -> "John Doe")
       const localPart = email.split('@')[0] || 'User';
       displayName = localPart
         .split(/[._-]/)
@@ -28,27 +51,6 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
         .join(' ');
     }
     onLogin(displayName || 'Health Member', email || 'member@glycolens.health');
-  };
-
-  // Handle Google selection
-  const handleSelectGoogleAccount = (name: string, accEmail: string) => {
-    setIsGoogleModalOpen(false);
-    onLogin(name, accEmail);
-  };
-
-  const handleCustomGoogleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const cleanEmail = customGoogleEmail.trim() || 'user@gmail.com';
-    let cleanName = customGoogleName.trim();
-    if (!cleanName) {
-      const localPart = cleanEmail.split('@')[0] || 'Google User';
-      cleanName = localPart
-        .split(/[._-]/)
-        .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
-        .join(' ');
-    }
-    setIsGoogleModalOpen(false);
-    onLogin(cleanName, cleanEmail);
   };
 
   return (
@@ -79,49 +81,74 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
           AI nutrition analysis, live step burn, and continuous metabolic biomarker tracking.
         </p>
 
-        {/* 1. REAL GOOGLE SIGN-IN BUTTON */}
+        {/* Error Alert Message */}
+        <AnimatePresence>
+          {authError && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="mb-4 p-3 rounded-2xl bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs flex items-start gap-2 text-left"
+            >
+              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+              <span>{authError}</span>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* 1. PRIMARY: FIREBASE GOOGLE SIGN-IN BUTTON */}
         <motion.button
           type="button"
+          disabled={isLoadingGoogle}
           whileHover={{ scale: 1.015 }}
           whileTap={{ scale: 0.985 }}
-          onClick={() => {
-            setGoogleStep('picker');
-            setIsGoogleModalOpen(true);
-          }}
-          className="w-full py-3 px-4 rounded-2xl bg-white hover:bg-neutral-100 text-neutral-800 font-medium text-xs sm:text-sm tracking-wide shadow-md flex items-center justify-center gap-3 cursor-pointer transition-all mb-4 border border-white/40"
+          onClick={handleFirebaseGoogleLogin}
+          className="w-full py-3.5 px-4 rounded-2xl bg-white hover:bg-neutral-100 text-neutral-800 font-semibold text-xs sm:text-sm tracking-wide shadow-lg flex items-center justify-center gap-3 cursor-pointer transition-all mb-4 border border-white/60 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed"
         >
-          {/* Official Google 'G' Logo SVG */}
-          <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
-            <path
-              fill="#4285F4"
-              d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.66-5.17 3.66-9.17z"
-            />
-            <path
-              fill="#34A853"
-              d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.33 24 12 24z"
-            />
-            <path
-              fill="#FBBC05"
-              d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.18 0 9.99 0 12s.45 3.82 1.25 5.42l4.03-3.15z"
-            />
-            <path
-              fill="#EA4335"
-              d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z"
-            />
-          </svg>
-          <span className="font-semibold text-neutral-800">Continue with Google</span>
+          {isLoadingGoogle ? (
+            <div className="flex items-center gap-2">
+              <div className="w-4 h-4 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin" />
+              <span className="text-neutral-700">Connecting to Google...</span>
+            </div>
+          ) : (
+            <>
+              {/* Official Google 'G' Logo SVG */}
+              <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
+                <path
+                  fill="#4285F4"
+                  d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.66-5.17 3.66-9.17z"
+                />
+                <path
+                  fill="#34A853"
+                  d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.33 24 12 24z"
+                />
+                <path
+                  fill="#FBBC05"
+                  d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.18 0 9.99 0 12s.45 3.82 1.25 5.42l4.03-3.15z"
+                />
+                <path
+                  fill="#EA4335"
+                  d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z"
+                />
+              </svg>
+              <span className="font-semibold text-neutral-900">Sign in with Google</span>
+              <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full ml-auto">
+                Firebase Auth
+              </span>
+            </>
+          )}
         </motion.button>
 
         {/* Divider */}
         <div className="relative flex items-center justify-center my-4">
           <div className="border-t border-white/10 w-full" />
           <span className="bg-slate-950/80 px-3 text-[11px] uppercase tracking-wider text-neutral-500 shrink-0 font-medium">
-            or sign in with email
+            or sign in manually
           </span>
           <div className="border-t border-white/10 w-full" />
         </div>
 
-        {/* 2. FLEXIBLE EMAIL/PASSWORD FORM FOR ANY USER */}
+        {/* 2. MANUAL EMAIL/PASSWORD OPTION */}
         <form onSubmit={handleEmailSubmit} className="space-y-3.5 text-left">
           {/* Full Name */}
           <div className="space-y-1">
@@ -149,7 +176,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
               <Mail className="w-4 h-4 text-neutral-500 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
                 type="email"
-                placeholder="Enter any email ID (e.g. you@gmail.com)"
+                placeholder="Enter email ID"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
@@ -193,184 +220,17 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
         <div className="mt-5 pt-4 border-t border-white/10 flex items-center justify-between text-[11px] text-neutral-400">
           <span className="flex items-center gap-1.5">
             <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-            Endocrine Cloud Active
+            Firebase Project Active
           </span>
           <button
             type="button"
             onClick={() => onLogin('Athul Raj P. R.', 'athulrajpr777@gmail.com')}
             className="text-emerald-400 hover:text-emerald-300 font-semibold underline cursor-pointer"
           >
-            Quick Demo Sign In
+            Instant Demo Sign In
           </button>
         </div>
       </motion.div>
-
-      {/* GOOGLE SIGN-IN INTERACTIVE MODAL */}
-      <AnimatePresence>
-        {isGoogleModalOpen && (
-          <div className="fixed inset-0 z-60 bg-black/70 backdrop-blur-md flex items-center justify-center p-4">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 15 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 15 }}
-              className="w-full max-w-sm rounded-3xl bg-neutral-900 border border-neutral-700/80 p-6 text-white shadow-2xl relative"
-            >
-              {/* Close Button */}
-              <button
-                onClick={() => setIsGoogleModalOpen(false)}
-                className="absolute top-4 right-4 p-1.5 rounded-full bg-neutral-800 text-neutral-400 hover:text-white transition-colors cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-
-              {/* Google Header */}
-              <div className="flex flex-col items-center text-center mb-5">
-                <div className="w-10 h-10 rounded-full bg-white flex items-center justify-center shadow-md mb-2.5">
-                  <svg className="w-5 h-5" viewBox="0 0 24 24">
-                    <path
-                      fill="#4285F4"
-                      d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.66-5.17 3.66-9.17z"
-                    />
-                    <path
-                      fill="#34A853"
-                      d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.33 24 12 24z"
-                    />
-                    <path
-                      fill="#FBBC05"
-                      d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.18 0 9.99 0 12s.45 3.82 1.25 5.42l4.03-3.15z"
-                    />
-                    <path
-                      fill="#EA4335"
-                      d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z"
-                    />
-                  </svg>
-                </div>
-                <h3 className="text-base font-semibold text-white">Sign in with Google</h3>
-                <p className="text-xs text-neutral-400 mt-0.5">
-                  to continue to <span className="text-emerald-400 font-medium">GlycoLens Health</span>
-                </p>
-              </div>
-
-              {googleStep === 'picker' ? (
-                <div className="space-y-3">
-                  <div className="text-[11px] font-semibold uppercase tracking-wider text-neutral-400 px-1">
-                    Choose an account
-                  </div>
-
-                  {/* Account 1: Athul Raj */}
-                  <button
-                    type="button"
-                    onClick={() => handleSelectGoogleAccount('Athul Raj P. R.', 'athulrajpr777@gmail.com')}
-                    className="w-full p-3 rounded-2xl bg-neutral-800/80 hover:bg-neutral-800 border border-neutral-700 hover:border-emerald-500/50 flex items-center gap-3 text-left transition-all cursor-pointer group"
-                  >
-                    <div className="w-8 h-8 rounded-full bg-emerald-600 text-white font-bold text-xs flex items-center justify-center shrink-0">
-                      A
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="text-xs font-semibold text-white group-hover:text-emerald-300 truncate">
-                        Athul Raj P. R.
-                      </div>
-                      <div className="text-[11px] text-neutral-400 truncate">
-                        athulrajpr777@gmail.com
-                      </div>
-                    </div>
-                    <Check className="w-4 h-4 text-emerald-400 opacity-0 group-hover:opacity-100 transition-opacity" />
-                  </button>
-
-                  {/* Account 2: Clean Alternate Account */}
-                  <button
-                    type="button"
-                    onClick={() => handleSelectGoogleAccount('Guest Health Member', 'member@gmail.com')}
-                    className="w-full p-3 rounded-2xl bg-neutral-800/80 hover:bg-neutral-800 border border-neutral-700 hover:border-emerald-500/50 flex items-center gap-3 text-left transition-all cursor-pointer group"
-                  >
-                    <div className="w-8 h-8 rounded-full bg-teal-600 text-white font-bold text-xs flex items-center justify-center shrink-0">
-                      G
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="text-xs font-semibold text-white group-hover:text-emerald-300 truncate">
-                        Guest Health Member
-                      </div>
-                      <div className="text-[11px] text-neutral-400 truncate">
-                        member@gmail.com
-                      </div>
-                    </div>
-                    <Check className="w-4 h-4 text-emerald-400 opacity-0 group-hover:opacity-100 transition-opacity" />
-                  </button>
-
-                  {/* Option 3: Enter Any Other Google Account */}
-                  <button
-                    type="button"
-                    onClick={() => setGoogleStep('custom')}
-                    className="w-full p-3 rounded-2xl bg-neutral-800/40 hover:bg-neutral-800 border border-dashed border-neutral-600 hover:border-emerald-400 flex items-center justify-between text-left transition-all cursor-pointer group"
-                  >
-                    <div className="flex items-center gap-2.5">
-                      <User className="w-4 h-4 text-emerald-400" />
-                      <span className="text-xs font-medium text-neutral-300 group-hover:text-white">
-                        Use another Google account...
-                      </span>
-                    </div>
-                    <ArrowRight className="w-3.5 h-3.5 text-neutral-400 group-hover:text-white group-hover:translate-x-0.5 transition-all" />
-                  </button>
-                </div>
-              ) : (
-                /* Step: Enter Custom Google Account */
-                <form onSubmit={handleCustomGoogleSubmit} className="space-y-3">
-                  <div className="text-[11px] font-semibold uppercase tracking-wider text-neutral-400 px-1">
-                    Enter your Google details
-                  </div>
-
-                  <div>
-                    <label className="text-[10px] uppercase font-semibold text-neutral-400 block mb-1">
-                      Display Name
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="e.g. Sarah Jenkins"
-                      value={customGoogleName}
-                      onChange={(e) => setCustomGoogleName(e.target.value)}
-                      className="w-full px-3.5 py-2.5 rounded-xl bg-neutral-800 border border-neutral-700 text-xs text-white placeholder-neutral-500 focus:outline-hidden focus:border-emerald-400"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-[10px] uppercase font-semibold text-neutral-400 block mb-1">
-                      Google Email Address
-                    </label>
-                    <input
-                      type="email"
-                      placeholder="your.email@gmail.com"
-                      value={customGoogleEmail}
-                      onChange={(e) => setCustomGoogleEmail(e.target.value)}
-                      required
-                      className="w-full px-3.5 py-2.5 rounded-xl bg-neutral-800 border border-neutral-700 text-xs text-white placeholder-neutral-500 focus:outline-hidden focus:border-emerald-400"
-                    />
-                  </div>
-
-                  <div className="pt-2 flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setGoogleStep('picker')}
-                      className="flex-1 py-2.5 px-3 rounded-xl bg-neutral-800 text-neutral-300 text-xs font-medium hover:bg-neutral-700 transition-colors"
-                    >
-                      Back
-                    </button>
-                    <button
-                      type="submit"
-                      className="flex-1 py-2.5 px-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white text-xs font-semibold shadow-md transition-colors"
-                    >
-                      Sign In with Google
-                    </button>
-                  </div>
-                </form>
-              )}
-
-              <p className="text-[10px] text-neutral-500 text-center mt-5">
-                To continue, Google will share your name and email address with GlycoLens Health.
-              </p>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
     </div>
   );
 };

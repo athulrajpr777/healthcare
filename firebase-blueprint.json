@@ -1,0 +1,51 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User profile with display name, email address, and daily step progress",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "displayName": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "maxLength": 256 },
+        "photoURL": { "type": "string", "maxLength": 512 },
+        "dailySteps": { "type": "number" },
+        "createdAt": { "type": "string", "maxLength": 64 },
+        "updatedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "displayName", "email"]
+    },
+    "FoodLog": {
+      "title": "FoodLog",
+      "description": "User logged meal with AI caloric, macronutrient, and glycemic decomposition",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 128 },
+        "calories": { "type": "number" },
+        "protein": { "type": "string", "maxLength": 32 },
+        "carbs": { "type": "string", "maxLength": 32 },
+        "fat": { "type": "string", "maxLength": 32 },
+        "fiber": { "type": "string", "maxLength": 32 },
+        "good": { "type": "string", "maxLength": 256 },
+        "bad": { "type": "string", "maxLength": 256 },
+        "glycemicIndex": { "type": "number" },
+        "advice": { "type": "string", "maxLength": 512 },
+        "sugarSpike": { "type": "string", "maxLength": 256 },
+        "createdAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "userId", "name", "calories"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "Private user account documents and step balance"
+    },
+    "/users/{userId}/foodLogs/{logId}": {
+      "schema": "FoodLog",
+      "description": "Subcollection storing user logged meals, macros, and AI insights"
+    }
+  }
+}

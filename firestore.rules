@@ -1,0 +1,86 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Safety Net: Default Deny All Unmatched Collections
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Hardened Global Primitives
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // Validation Blueprint for UserProfile
+    function isValidUserProfile(data) {
+      return data.keys().hasAll(['id', 'displayName', 'email']) &&
+             data.keys().hasOnly(['id', 'displayName', 'email', 'photoURL', 'dailySteps', 'createdAt', 'updatedAt']) &&
+             data.id is string && data.id.size() <= 128 && data.id == request.auth.uid &&
+             data.displayName is string && data.displayName.size() <= 128 &&
+             data.email is string && data.email.size() <= 256 &&
+             (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() <= 512)) &&
+             (!('dailySteps' in data) || (data.dailySteps is number && data.dailySteps >= 0 && data.dailySteps <= 200000)) &&
+             (!('createdAt' in data) || (data.createdAt is string && data.createdAt.size() <= 64)) &&
+             (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 64));
+    }
+
+    // Validation Blueprint for FoodLog
+    function isValidFoodLog(data, userId) {
+      return data.keys().hasAll(['id', 'userId', 'name', 'calories']) &&
+             data.keys().hasOnly(['id', 'userId', 'name', 'calories', 'protein', 'carbs', 'fat', 'fiber', 'good', 'bad', 'glycemicIndex', 'advice', 'sugarSpike', 'createdAt']) &&
+             data.id is string && data.id.size() <= 128 &&
+             data.userId is string && data.userId == userId && data.userId == request.auth.uid &&
+             data.name is string && data.name.size() <= 128 &&
+             data.calories is number && data.calories >= 0 && data.calories <= 10000 &&
+             (!('protein' in data) || (data.protein is string && data.protein.size() <= 32)) &&
+             (!('carbs' in data) || (data.carbs is string && data.carbs.size() <= 32)) &&
+             (!('fat' in data) || (data.fat is string && data.fat.size() <= 32)) &&
+             (!('fiber' in data) || (data.fiber is string && data.fiber.size() <= 32)) &&
+             (!('good' in data) || (data.good is string && data.good.size() <= 256)) &&
+             (!('bad' in data) || (data.bad is string && data.bad.size() <= 256)) &&
+             (!('glycemicIndex' in data) || (data.glycemicIndex is number && data.glycemicIndex >= 0 && data.glycemicIndex <= 150)) &&
+             (!('advice' in data) || (data.advice is string && data.advice.size() <= 512)) &&
+             (!('sugarSpike' in data) || (data.sugarSpike is string && data.sugarSpike.size() <= 256)) &&
+             (!('createdAt' in data) || (data.createdAt is string && data.createdAt.size() <= 64));
+    }
+
+    // /users/{userId} collection
+    match /users/{userId} {
+      allow get: if isOwner(userId) && isValidId(userId);
+      allow create: if isOwner(userId) && isValidId(userId) && isValidUserProfile(incoming());
+      allow update: if isOwner(userId) && isValidId(userId) && isValidUserProfile(incoming()) &&
+                    incoming().id == existing().id &&
+                    incoming().email == existing().email &&
+                    incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'dailySteps', 'updatedAt']);
+      allow delete: if isOwner(userId) && isValidId(userId);
+
+      // /users/{userId}/foodLogs/{logId} subcollection
+      match /foodLogs/{logId} {
+        allow get: if isOwner(userId) && isValidId(logId);
+        allow list: if isOwner(userId) && resource.data.userId == request.auth.uid;
+        allow create: if isOwner(userId) && isValidId(logId) && isValidFoodLog(incoming(), userId);
+        allow update: if isOwner(userId) && isValidId(logId) && isValidFoodLog(incoming(), userId) &&
+                      incoming().userId == existing().userId;
+        allow delete: if isOwner(userId) && isValidId(logId);
+      }
+    }
+  }
+}

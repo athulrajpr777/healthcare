@@ -1,21 +1,37 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { LoginScreen } from './components/LoginScreen';
 import { GlycoLensNavbar } from './components/GlycoLensNavbar';
 import { InteractiveHeroSection } from './components/InteractiveHeroSection';
 import { FoodScannerCard } from './components/FoodScannerCard';
+import { NutritionalAIChatCard } from './components/NutritionalAIChatCard';
+import { AIMetabolicCoachCard } from './components/AIMetabolicCoachCard';
 import { AnalyticsAndStepTracker, DayDataPoint } from './components/AnalyticsAndStepTracker';
 import { MockFoodItem, mockFoodDatabase } from './data/mockFoodDb';
-import { Sparkles } from 'lucide-react';
+import { Sparkles, Trash2 } from 'lucide-react';
+import {
+  auth,
+  logoutFirebase,
+  testFirestoreConnection,
+  syncUserProfile,
+  saveUserDailySteps,
+  saveFoodLogToFirestore,
+  deleteFoodLogFromFirestore,
+  subscribeToUserFoodLogs,
+} from './firebase';
 
 export default function App() {
   // Global State
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
   const [userName, setUserName] = useState<string>('Athul Raj P. R.');
   const [userEmail, setUserEmail] = useState<string>('athulrajpr777@gmail.com');
+  const [firebaseUid, setFirebaseUid] = useState<string | null>(null);
   const [dailySteps, setDailySteps] = useState<number>(7420);
+  const [metabolicScore, setMetabolicScore] = useState<number>(89);
   const [savedFoods, setSavedFoods] = useState<MockFoodItem[]>([
-    mockFoodDatabase[2], // "Avocado Salad"
+    mockFoodDatabase[2], // Default starter item before Firestore sync
   ]);
+
+  const stepSyncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Chart data state
   const [chartData, setChartData] = useState<DayDataPoint[]>([
@@ -28,38 +44,73 @@ export default function App() {
     { day: 'Sun (Today)', intake: 250, burned: Math.round(7420 * 0.04) },
   ]);
 
-  // Save food from scanner to analytics state
-  const handleSaveToAnalytics = (food: MockFoodItem) => {
-    setSavedFoods((prev) => [food, ...prev]);
-
-    // Update today's caloric intake in the chart
+  // Keep today's chart intake/burned synced with savedFoods and dailySteps
+  useEffect(() => {
+    const todayIntake = savedFoods.reduce((sum, item) => sum + (Number(item.calories) || 0), 0);
+    const todayBurned = Math.round(dailySteps * 0.04);
     setChartData((prev) => {
       const updated = [...prev];
       const todayIdx = updated.length - 1;
       if (todayIdx >= 0) {
         updated[todayIdx] = {
           ...updated[todayIdx],
-          intake: updated[todayIdx].intake + food.calories,
+          intake: todayIntake,
+          burned: todayBurned,
         };
       }
       return updated;
     });
+  }, [savedFoods, dailySteps]);
+
+  // Save food from scanner or AI chat to state + Firestore
+  const handleSaveToAnalytics = async (food: MockFoodItem) => {
+    const foodWithId: MockFoodItem = {
+      ...food,
+      id: (food.id || `food_${Date.now()}`).replace(/[^a-zA-Z0-9_-]/g, '_'),
+    };
+
+    if (auth.currentUser && firebaseUid) {
+      // Optimistically show immediately, then Firestore onSnapshot keeps it synced
+      setSavedFoods((prev) => {
+        if (prev.some((f) => f.id === foodWithId.id)) return prev;
+        return [foodWithId, ...prev];
+      });
+      try {
+        await saveFoodLogToFirestore(firebaseUid, foodWithId);
+      } catch (err) {
+        console.error('Failed to persist meal to Firestore:', err);
+      }
+    } else {
+      setSavedFoods((prev) => [foodWithId, ...prev]);
+    }
   };
 
-  // Step counter update handler
+  // Delete food entry
+  const handleDeleteFood = async (foodId: string) => {
+    setSavedFoods((prev) => prev.filter((f) => f.id !== foodId));
+    if (auth.currentUser && firebaseUid) {
+      try {
+        await deleteFoodLogFromFirestore(firebaseUid, foodId);
+      } catch (err) {
+        console.error('Failed to delete meal from Firestore:', err);
+      }
+    }
+  };
+
+  // Step counter update handler (with debounced Firestore persistence)
   const handleStepsChange = (newSteps: number) => {
     setDailySteps(newSteps);
-    setChartData((prev) => {
-      const updated = [...prev];
-      const todayIdx = updated.length - 1;
-      if (todayIdx >= 0) {
-        updated[todayIdx] = {
-          ...updated[todayIdx],
-          burned: Math.round(newSteps * 0.04),
-        };
+    if (auth.currentUser) {
+      if (stepSyncTimeoutRef.current) {
+        clearTimeout(stepSyncTimeoutRef.current);
       }
-      return updated;
-    });
+      const activeUser = auth.currentUser;
+      stepSyncTimeoutRef.current = setTimeout(() => {
+        saveUserDailySteps(activeUser, newSteps).catch((err) => {
+          console.error('Failed to persist daily steps:', err);
+        });
+      }, 2500);
+    }
   };
 
   const scrollToLens = () => {
@@ -74,6 +125,55 @@ export default function App() {
     if (el) {
       el.scrollIntoView({ behavior: 'smooth' });
     }
+  };
+
+  // Sync Firebase Auth state and Firestore foodLogs across sessions
+  useEffect(() => {
+    testFirestoreConnection();
+    let unsubscribeLogs: (() => void) | null = null;
+
+    const unsubscribeAuth = auth.onAuthStateChanged(async (user) => {
+      if (unsubscribeLogs) {
+        unsubscribeLogs();
+        unsubscribeLogs = null;
+      }
+
+      if (user) {
+        setFirebaseUid(user.uid);
+        setIsLoggedIn(true);
+        setUserName(user.displayName || user.email?.split('@')[0] || 'Google User');
+        setUserEmail(user.email || 'user@gmail.com');
+
+        try {
+          const persistedSteps = await syncUserProfile(user, 7420);
+          setDailySteps(persistedSteps);
+        } catch (err) {
+          console.error('Profile sync error:', err);
+        }
+
+        unsubscribeLogs = subscribeToUserFoodLogs(user.uid, (logs) => {
+          setSavedFoods(logs);
+        });
+      } else {
+        setFirebaseUid(null);
+      }
+    });
+
+    return () => {
+      unsubscribeAuth();
+      if (unsubscribeLogs) unsubscribeLogs();
+      if (stepSyncTimeoutRef.current) clearTimeout(stepSyncTimeoutRef.current);
+    };
+  }, []);
+
+  const handleLogout = async () => {
+    try {
+      await logoutFirebase();
+    } catch (e) {
+      console.warn('Firebase logout notice:', e);
+    }
+    setFirebaseUid(null);
+    setIsLoggedIn(false);
   };
 
   // COMPONENT 1: LOGIN SCREEN (Strictly required if !isLoggedIn)
@@ -96,13 +196,14 @@ export default function App() {
       <GlycoLensNavbar
         userName={userName}
         userEmail={userEmail}
-        onLogout={() => setIsLoggedIn(false)}
+        onLogout={handleLogout}
         onScanClick={scrollToLens}
       />
 
       {/* 3D INTERACTIVE HERO SECTION: First thing seen after login */}
       <InteractiveHeroSection
         steps={dailySteps}
+        metabolicScore={metabolicScore}
         onScanClick={scrollToLens}
         onScrollDown={scrollToDashboard}
       />
@@ -122,14 +223,28 @@ export default function App() {
               </h2>
             </div>
             <p className="text-xs text-neutral-500 max-w-sm">
-              Scan any meal photo or click a preset below to estimate protein, carbohydrates, healthy fats, and glycemic spike risk.
+              Scan any meal photo or click a preset below to analyze protein, carbohydrates, healthy fats, and glycemic spike risk with Gemini Vision AI.
             </p>
           </div>
 
           <FoodScannerCard onSaveToAnalytics={handleSaveToAnalytics} />
         </section>
 
-        {/* Section 2: Step Counter & Analytics Chart */}
+        {/* Section 2: Context-Aware Nutritional AI (Voice, Text & Photo Chat) */}
+        <section id="ai-assistant-section" className="space-y-4 pt-4">
+          <NutritionalAIChatCard onSaveToAnalytics={handleSaveToAnalytics} />
+        </section>
+
+        {/* Section 3: AI Metabolic Coach & Daily Insights */}
+        <section id="ai-coach-section" className="space-y-4 pt-4">
+          <AIMetabolicCoachCard
+            savedFoods={savedFoods}
+            dailySteps={dailySteps}
+            onScoreUpdate={setMetabolicScore}
+          />
+        </section>
+
+        {/* Section 4: Step Counter & Analytics Chart */}
         <section id="tracker-section" className="space-y-4 pt-4">
           <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-2 pb-2">
             <div>
@@ -150,13 +265,13 @@ export default function App() {
           />
         </section>
 
-        {/* Section 3: Saved Food Journal Log */}
+        {/* Section 5: Saved Food Journal Log */}
         {savedFoods.length > 0 && (
           <section className="bg-white/60 backdrop-blur-xl border border-white/80 rounded-3xl p-6 sm:p-8 shadow-xl shadow-emerald-950/5">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-6">
               <div>
                 <h3 className="text-lg font-medium tracking-tight text-[#1C2E1E]">
-                  Today's Saved Food Logs ({savedFoods.length})
+                  Today&apos;s Saved Food Logs ({savedFoods.length})
                 </h3>
                 <p className="text-xs text-neutral-500">
                   Continuous entries updating your 7-day caloric and glycemic history
@@ -171,9 +286,18 @@ export default function App() {
               {savedFoods.map((meal, idx) => (
                 <div
                   key={`${meal.id}-${idx}`}
-                  className="p-4 rounded-2xl bg-white border border-neutral-200/80 shadow-xs flex flex-col justify-between"
+                  className="p-4 rounded-2xl bg-white border border-neutral-200/80 shadow-xs flex flex-col justify-between group relative"
                 >
-                  <div className="flex items-center gap-3 mb-2.5">
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteFood(meal.id)}
+                    title="Remove meal log"
+                    className="absolute top-2.5 right-2.5 p-1.5 rounded-lg text-neutral-400 hover:text-rose-600 hover:bg-rose-50 opacity-0 group-hover:opacity-100 transition-all cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+
+                  <div className="flex items-center gap-3 mb-2.5 pr-6">
                     {meal.imageUrl && (
                       <img
                         src={meal.imageUrl}
