@@ -4,6 +4,7 @@ import { Camera, LogOut, Sparkles, User, Footprints } from 'lucide-react';
 interface GlycoLensNavbarProps {
   userName: string;
   userEmail?: string;
+  userPhoto?: string;
   onLogout: () => void;
   onScanClick: () => void;
 }
@@ -11,9 +12,12 @@ interface GlycoLensNavbarProps {
 export const GlycoLensNavbar: React.FC<GlycoLensNavbarProps> = ({
   userName,
   userEmail,
+  userPhoto,
   onLogout,
   onScanClick,
 }) => {
+  const [imgFailed, setImgFailed] = React.useState(false);
+
   return (
     <header className="fixed top-0 inset-x-0 z-50 backdrop-blur-md bg-white/75 border-b border-neutral-200/60 shadow-xs transition-colors">
       <div className="max-w-7xl mx-auto px-6 h-16 sm:h-18 flex items-center justify-between">
@@ -66,9 +70,19 @@ export const GlycoLensNavbar: React.FC<GlycoLensNavbarProps> = ({
               title={userEmail ? `${userName} (${userEmail})` : userName}
               className="flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-white/70 border border-neutral-200/80 text-xs text-neutral-800 shadow-xs"
             >
-              <div className="w-5 h-5 rounded-full bg-emerald-600 text-white font-bold text-[10px] flex items-center justify-center">
-                {userName ? userName.trim().charAt(0).toUpperCase() : 'U'}
-              </div>
+              {userPhoto && !imgFailed ? (
+                <img
+                  src={userPhoto}
+                  alt={userName}
+                  referrerPolicy="no-referrer"
+                  onError={() => setImgFailed(true)}
+                  className="w-5 h-5 rounded-full object-cover"
+                />
+              ) : (
+                <div className="w-5 h-5 rounded-full bg-emerald-600 text-white font-bold text-[10px] flex items-center justify-center">
+                  {userName ? userName.trim().charAt(0).toUpperCase() : 'U'}
+                </div>
+              )}
               <span className="font-semibold hidden sm:inline">{userName}</span>
             </div>
 

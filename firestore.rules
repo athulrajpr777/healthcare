@@ -45,9 +45,9 @@ service cloud.firestore {
     // Validation Blueprint for FoodLog
     function isValidFoodLog(data, userId) {
       return data.keys().hasAll(['id', 'userId', 'name', 'calories']) &&
-             data.keys().hasOnly(['id', 'userId', 'name', 'calories', 'protein', 'carbs', 'fat', 'fiber', 'good', 'bad', 'glycemicIndex', 'advice', 'sugarSpike', 'createdAt']) &&
+             data.keys().hasOnly(['id', 'userId', 'name', 'calories', 'protein', 'carbs', 'fat', 'fiber', 'good', 'bad', 'glycemicIndex', 'advice', 'sugarSpike', 'sugarSpikeLevel', 'createdAt']) &&
              data.id is string && data.id.size() <= 128 &&
-             data.userId is string && data.userId == userId && data.userId == request.auth.uid &&
+             data.userId is string && data.userId.size() <= 128 && data.userId == userId && data.userId == request.auth.uid &&
              data.name is string && data.name.size() <= 128 &&
              data.calories is number && data.calories >= 0 && data.calories <= 10000 &&
              (!('protein' in data) || (data.protein is string && data.protein.size() <= 32)) &&
@@ -59,6 +59,7 @@ service cloud.firestore {
              (!('glycemicIndex' in data) || (data.glycemicIndex is number && data.glycemicIndex >= 0 && data.glycemicIndex <= 150)) &&
              (!('advice' in data) || (data.advice is string && data.advice.size() <= 512)) &&
              (!('sugarSpike' in data) || (data.sugarSpike is string && data.sugarSpike.size() <= 256)) &&
+             (!('sugarSpikeLevel' in data) || (data.sugarSpikeLevel is string && data.sugarSpikeLevel.size() <= 32)) &&
              (!('createdAt' in data) || (data.createdAt is string && data.createdAt.size() <= 64));
     }
 
@@ -69,17 +70,20 @@ service cloud.firestore {
       allow update: if isOwner(userId) && isValidId(userId) && isValidUserProfile(incoming()) &&
                     incoming().id == existing().id &&
                     incoming().email == existing().email &&
+                    (!('createdAt' in existing()) || incoming().createdAt == existing().createdAt) &&
                     incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'dailySteps', 'updatedAt']);
       allow delete: if isOwner(userId) && isValidId(userId);
 
       // /users/{userId}/foodLogs/{logId} subcollection
       match /foodLogs/{logId} {
-        allow get: if isOwner(userId) && isValidId(logId);
-        allow list: if isOwner(userId) && resource.data.userId == request.auth.uid;
-        allow create: if isOwner(userId) && isValidId(logId) && isValidFoodLog(incoming(), userId);
-        allow update: if isOwner(userId) && isValidId(logId) && isValidFoodLog(incoming(), userId) &&
-                      incoming().userId == existing().userId;
-        allow delete: if isOwner(userId) && isValidId(logId);
+        allow get: if isOwner(userId) && isValidId(userId) && isValidId(logId);
+        allow list: if isOwner(userId) && isValidId(userId) && resource.data.userId == request.auth.uid;
+        allow create: if isOwner(userId) && isValidId(userId) && isValidId(logId) && isValidFoodLog(incoming(), userId);
+        allow update: if isOwner(userId) && isValidId(userId) && isValidId(logId) && isValidFoodLog(incoming(), userId) &&
+                      incoming().id == existing().id &&
+                      incoming().userId == existing().userId &&
+                      incoming().diff(existing()).affectedKeys().hasOnly(['name', 'calories', 'protein', 'carbs', 'fat', 'fiber', 'good', 'bad', 'glycemicIndex', 'advice', 'sugarSpike', 'sugarSpikeLevel']);
+        allow delete: if isOwner(userId) && isValidId(userId) && isValidId(logId);
       }
     }
   }

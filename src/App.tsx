@@ -7,7 +7,7 @@ import { NutritionalAIChatCard } from './components/NutritionalAIChatCard';
 import { AIMetabolicCoachCard } from './components/AIMetabolicCoachCard';
 import { AnalyticsAndStepTracker, DayDataPoint } from './components/AnalyticsAndStepTracker';
 import { MockFoodItem, mockFoodDatabase } from './data/mockFoodDb';
-import { Sparkles, Trash2 } from 'lucide-react';
+import { Sparkles, Trash2, AlertCircle, X } from 'lucide-react';
 import {
   auth,
   logoutFirebase,
@@ -19,16 +19,32 @@ import {
   subscribeToUserFoodLogs,
 } from './firebase';
 
+function parseReadableDbError(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err || 'Cloud sync error');
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed?.error) {
+      return `Cloud sync (${parsed.operationType || 'read/write'}): ${parsed.error}`;
+    }
+  } catch {
+    // plain string
+  }
+  return raw;
+}
+
 export default function App() {
   // Global State
+  const [isAuthChecking, setIsAuthChecking] = useState<boolean>(true);
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
   const [userName, setUserName] = useState<string>('Athul Raj P. R.');
   const [userEmail, setUserEmail] = useState<string>('athulrajpr777@gmail.com');
+  const [userPhoto, setUserPhoto] = useState<string | undefined>(undefined);
   const [firebaseUid, setFirebaseUid] = useState<string | null>(null);
+  const [firebaseError, setFirebaseError] = useState<string | null>(null);
   const [dailySteps, setDailySteps] = useState<number>(7420);
   const [metabolicScore, setMetabolicScore] = useState<number>(89);
   const [savedFoods, setSavedFoods] = useState<MockFoodItem[]>([
-    mockFoodDatabase[2], // Default starter item before Firestore sync
+    mockFoodDatabase[2], // Default starter item for local preview before Firestore sync
   ]);
 
   const stepSyncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -70,7 +86,6 @@ export default function App() {
     };
 
     if (auth.currentUser && firebaseUid) {
-      // Optimistically show immediately, then Firestore onSnapshot keeps it synced
       setSavedFoods((prev) => {
         if (prev.some((f) => f.id === foodWithId.id)) return prev;
         return [foodWithId, ...prev];
@@ -78,7 +93,7 @@ export default function App() {
       try {
         await saveFoodLogToFirestore(firebaseUid, foodWithId);
       } catch (err) {
-        console.error('Failed to persist meal to Firestore:', err);
+        setFirebaseError(parseReadableDbError(err));
       }
     } else {
       setSavedFoods((prev) => [foodWithId, ...prev]);
@@ -92,7 +107,7 @@ export default function App() {
       try {
         await deleteFoodLogFromFirestore(firebaseUid, foodId);
       } catch (err) {
-        console.error('Failed to delete meal from Firestore:', err);
+        setFirebaseError(parseReadableDbError(err));
       }
     }
   };
@@ -107,7 +122,7 @@ export default function App() {
       const activeUser = auth.currentUser;
       stepSyncTimeoutRef.current = setTimeout(() => {
         saveUserDailySteps(activeUser, newSteps).catch((err) => {
-          console.error('Failed to persist daily steps:', err);
+          setFirebaseError(parseReadableDbError(err));
         });
       }, 2500);
     }
@@ -129,7 +144,7 @@ export default function App() {
 
   // Sync Firebase Auth state and Firestore foodLogs across sessions
   useEffect(() => {
-    testFirestoreConnection();
+    void testFirestoreConnection();
     let unsubscribeLogs: (() => void) | null = null;
 
     const unsubscribeAuth = auth.onAuthStateChanged(async (user) => {
@@ -140,22 +155,32 @@ export default function App() {
 
       if (user) {
         setFirebaseUid(user.uid);
+        setFirebaseError(null);
         setIsLoggedIn(true);
         setUserName(user.displayName || user.email?.split('@')[0] || 'Google User');
         setUserEmail(user.email || 'user@gmail.com');
+        setUserPhoto(user.photoURL || undefined);
+        setIsAuthChecking(false);
 
         try {
           const persistedSteps = await syncUserProfile(user, 7420);
           setDailySteps(persistedSteps);
         } catch (err) {
-          console.error('Profile sync error:', err);
+          setFirebaseError(parseReadableDbError(err));
         }
 
-        unsubscribeLogs = subscribeToUserFoodLogs(user.uid, (logs) => {
-          setSavedFoods(logs);
-        });
+        unsubscribeLogs = subscribeToUserFoodLogs(
+          user.uid,
+          (logs) => {
+            setSavedFoods(logs);
+          },
+          (err) => {
+            setFirebaseError(parseReadableDbError(err));
+          }
+        );
       } else {
         setFirebaseUid(null);
+        setIsAuthChecking(false);
       }
     });
 
@@ -173,16 +198,30 @@ export default function App() {
       console.warn('Firebase logout notice:', e);
     }
     setFirebaseUid(null);
+    setUserPhoto(undefined);
+    setFirebaseError(null);
+    setDailySteps(7420);
+    setSavedFoods([mockFoodDatabase[2]]);
     setIsLoggedIn(false);
   };
+
+  if (isAuthChecking) {
+    return (
+      <div className="min-h-screen w-full bg-slate-950 flex flex-col items-center justify-center gap-3 text-white">
+        <div className="w-8 h-8 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin" />
+        <p className="text-xs text-neutral-400">Connecting GlycoLens Health...</p>
+      </div>
+    );
+  }
 
   // COMPONENT 1: LOGIN SCREEN (Strictly required if !isLoggedIn)
   if (!isLoggedIn) {
     return (
       <LoginScreen
-        onLogin={(name, email) => {
+        onLogin={(name, email, photo) => {
           setUserName(name || 'Health Member');
           setUserEmail(email || 'member@glycolens.health');
+          setUserPhoto(photo);
           setIsLoggedIn(true);
         }}
       />
@@ -196,9 +235,30 @@ export default function App() {
       <GlycoLensNavbar
         userName={userName}
         userEmail={userEmail}
+        userPhoto={userPhoto}
         onLogout={handleLogout}
         onScanClick={scrollToLens}
       />
+
+      {/* Non-blocking Cloud Sync Error Banner */}
+      {firebaseError && (
+        <div className="fixed top-20 inset-x-0 z-40 max-w-3xl mx-auto px-4">
+          <div className="p-3.5 rounded-2xl bg-rose-50/95 backdrop-blur-md border border-rose-200 text-xs text-rose-800 shadow-lg flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-rose-500 shrink-0" />
+              <span>{firebaseError}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setFirebaseError(null)}
+              className="p-1 rounded-lg text-rose-500 hover:text-rose-800 cursor-pointer"
+              aria-label="Dismiss alert"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* 3D INTERACTIVE HERO SECTION: First thing seen after login */}
       <InteractiveHeroSection

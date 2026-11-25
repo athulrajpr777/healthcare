@@ -33,6 +33,7 @@
         "glycemicIndex": { "type": "number" },
         "advice": { "type": "string", "maxLength": 512 },
         "sugarSpike": { "type": "string", "maxLength": 256 },
+        "sugarSpikeLevel": { "type": "string", "maxLength": 32 },
         "createdAt": { "type": "string", "maxLength": 64 }
       },
       "required": ["id", "userId", "name", "calories"]

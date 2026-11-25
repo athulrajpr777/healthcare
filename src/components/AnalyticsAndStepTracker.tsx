@@ -28,6 +28,10 @@ export const AnalyticsAndStepTracker: React.FC<AnalyticsAndStepTrackerProps> = (
 }) => {
   const [isWalking, setIsWalking] = useState(false);
   const [sessionSeconds, setSessionSeconds] = useState(0);
+  const stepsRef = React.useRef(steps);
+  const onStepsChangeRef = React.useRef(onStepsChange);
+  stepsRef.current = steps;
+  onStepsChangeRef.current = onStepsChange;
 
   // Algorithm: 1 step = 0.04 calories burned
   const caloriesBurned = Math.round(steps * 0.04);
@@ -36,19 +40,14 @@ export const AnalyticsAndStepTracker: React.FC<AnalyticsAndStepTrackerProps> = (
   const progressPct = Math.min(100, Math.round((steps / stepGoal) * 100));
 
   useEffect(() => {
-    let intervalId: any = null;
-    if (isWalking) {
-      intervalId = setInterval(() => {
-        setSessionSeconds((s) => s + 1);
-        // Realistic step tick: 2 to 3 steps per tick
-        const tickInc = Math.floor(Math.random() * 2) + 2;
-        onStepsChange(steps + tickInc);
-      }, 800);
-    } else {
-      clearInterval(intervalId);
-    }
+    if (!isWalking) return;
+    const intervalId = setInterval(() => {
+      setSessionSeconds((s) => s + 1);
+      const tickInc = Math.floor(Math.random() * 2) + 2;
+      onStepsChangeRef.current(stepsRef.current + tickInc);
+    }, 800);
     return () => clearInterval(intervalId);
-  }, [isWalking, steps, onStepsChange]);
+  }, [isWalking]);
 
   const formatTimer = (totalSecs: number) => {
     const mins = Math.floor(totalSecs / 60);

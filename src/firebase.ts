@@ -1,5 +1,15 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, User } from 'firebase/auth';
+import {
+  getAuth,
+  GoogleAuthProvider,
+  signInWithPopup,
+  signOut,
+  setPersistence,
+  browserLocalPersistence,
+  browserSessionPersistence,
+  inMemoryPersistence,
+  User,
+} from 'firebase/auth';
 import {
   getFirestore,
   doc,
@@ -11,7 +21,6 @@ import {
   collection,
   query,
   where,
-  orderBy,
   onSnapshot,
   Unsubscribe,
 } from 'firebase/firestore';
@@ -26,6 +35,23 @@ export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 
 // Initialize Firebase Authentication
 export const auth = getAuth(app);
+
+// Ensure auth persistence degrades gracefully if browser/iframe blocks IndexedDB/localStorage
+void (async () => {
+  try {
+    await setPersistence(auth, browserLocalPersistence);
+  } catch {
+    try {
+      await setPersistence(auth, browserSessionPersistence);
+    } catch {
+      try {
+        await setPersistence(auth, inMemoryPersistence);
+      } catch {
+        // Default SDK persistence remains active
+      }
+    }
+  }
+})();
 
 // Google Auth Provider setup
 export const googleProvider = new GoogleAuthProvider();
@@ -85,7 +111,36 @@ export function handleFirestoreError(
   throw new Error(JSON.stringify(errInfo));
 }
 
-// Helper: Sign In with Google Popup
+// Human-readable Firebase Auth error formatter
+export function formatFirebaseAuthError(err: unknown): string {
+  const code = (err as { code?: string })?.code || '';
+  const message = err instanceof Error ? err.message : String(err || '');
+
+  switch (code) {
+    case 'auth/popup-closed-by-user':
+      return 'Google sign-in window was closed before finishing. Please try again.';
+    case 'auth/cancelled-popup-request':
+      return 'Another sign-in request was already open. Please click "Sign in with Google" once.';
+    case 'auth/popup-blocked':
+      return 'Pop-up was blocked by your browser. Please allow pop-ups for this site or open the app in a new tab.';
+    case 'auth/unauthorized-domain':
+      return `This domain (${window.location.hostname}) is not authorized in Firebase Authentication. Add it under Firebase Console > Authentication > Settings > Authorized domains.`;
+    case 'auth/operation-not-allowed':
+      return 'Google Sign-In is not enabled in Firebase Authentication. Enable the Google provider in Firebase Console.';
+    case 'auth/web-storage-unsupported':
+      return 'Browser storage or cookies are blocked in this window. Please enable site storage or open the app in a new tab.';
+    case 'auth/network-request-failed':
+      return 'Network error while connecting to Google Authentication. Check your connection and retry.';
+    case 'auth/account-exists-with-different-credential':
+      return 'An account already exists with this email using a different sign-in provider.';
+    case 'auth/internal-error':
+      return 'Google Sign-In encountered a temporary browser/iframe error. Try allowing pop-ups or opening in a new browser tab.';
+    default:
+      return message || 'Failed to authenticate with Google. Please try again.';
+  }
+}
+
+// Helper: Sign In with Google Popup (must be invoked synchronously from click handler)
 export async function signInWithGoogle(): Promise<User> {
   const result = await signInWithPopup(auth, googleProvider);
   return result.user;
@@ -103,7 +158,7 @@ export async function testFirestoreConnection(): Promise<boolean> {
     return true;
   } catch (error) {
     if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.warn('Firebase Firestore: check configuration or network offline.');
+      console.error('Please check your Firebase configuration.');
     }
     return false;
   }
@@ -143,7 +198,7 @@ export async function syncUserProfile(user: User, defaultSteps = 7420): Promise<
           user.email?.split('@')[0] ||
           'Google User'
         ).slice(0, 128),
-        dailySteps: persistedSteps,
+        dailySteps: Math.max(0, Math.min(200000, Math.round(persistedSteps))),
         updatedAt: now,
       };
       if (user.photoURL && user.photoURL.length <= 512) {
@@ -191,9 +246,7 @@ export async function saveFoodLogToFirestore(uid: string, food: MockFoodItem): P
   const logPath = `users/${uid}/foodLogs/${safeId}`;
   const logRef = doc(db, 'users', uid, 'foodLogs', safeId);
 
-  const payload: Record<string, unknown> = {
-    id: safeId,
-    userId: uid,
+  const mutableFields: Record<string, unknown> = {
     name: String(food.name || 'Meal').slice(0, 128),
     calories: Math.max(0, Math.min(10000, Math.round(Number(food.calories) || 0))),
     protein: String(food.protein || '0g').slice(0, 32),
@@ -204,13 +257,26 @@ export async function saveFoodLogToFirestore(uid: string, food: MockFoodItem): P
     bad: String(food.bad || 'None').slice(0, 256),
     glycemicIndex: Math.max(0, Math.min(150, Math.round(Number(food.glycemicIndex) || 35))),
     advice: String(food.advice || '').slice(0, 512),
-    createdAt: new Date().toISOString(),
   };
 
+  if (food.sugarSpikeLevel) {
+    mutableFields.sugarSpikeLevel = String(food.sugarSpikeLevel).slice(0, 32);
+  }
+
   try {
-    await setDoc(logRef, payload);
+    const existingSnap = await getDoc(logRef);
+    if (existingSnap.exists()) {
+      await updateDoc(logRef, mutableFields);
+    } else {
+      await setDoc(logRef, {
+        id: safeId,
+        userId: uid,
+        ...mutableFields,
+        createdAt: new Date().toISOString(),
+      });
+    }
   } catch (error) {
-    handleFirestoreError(error, OperationType.CREATE, logPath);
+    handleFirestoreError(error, OperationType.WRITE, logPath);
   }
 }
 
@@ -225,41 +291,52 @@ export async function deleteFoodLogFromFirestore(uid: string, logId: string): Pr
   }
 }
 
-// Real-time listener for user's food logs
+// Real-time listener for user's food logs (sorts client-side to avoid composite index dependency)
 export function subscribeToUserFoodLogs(
   uid: string,
-  onData: (logs: MockFoodItem[]) => void
+  onData: (logs: MockFoodItem[]) => void,
+  onError?: (err: Error) => void
 ): Unsubscribe {
   const collectionPath = `users/${uid}/foodLogs`;
-  const q = query(
-    collection(db, 'users', uid, 'foodLogs'),
-    where('userId', '==', uid),
-    orderBy('createdAt', 'desc')
-  );
+  const q = query(collection(db, 'users', uid, 'foodLogs'), where('userId', '==', uid));
 
   return onSnapshot(
     q,
     (snapshot) => {
-      const items: MockFoodItem[] = snapshot.docs.map((d) => {
+      const withTime = snapshot.docs.map((d) => {
         const data = d.data();
         return {
-          id: data.id || d.id,
-          name: data.name || 'Logged Meal',
-          calories: Number(data.calories) || 0,
-          protein: data.protein || '0g',
-          carbs: data.carbs || '0g',
-          fat: data.fat || '0g',
-          fiber: data.fiber || '0g',
-          good: data.good || 'Balanced Nutrient Profile',
-          bad: data.bad || 'None',
-          glycemicIndex: typeof data.glycemicIndex === 'number' ? data.glycemicIndex : 35,
-          advice: data.advice || '',
+          createdAt: typeof data.createdAt === 'string' ? data.createdAt : '',
+          item: {
+            id: data.id || d.id,
+            name: data.name || 'Logged Meal',
+            calories: Number(data.calories) || 0,
+            protein: data.protein || '0g',
+            carbs: data.carbs || '0g',
+            fat: data.fat || '0g',
+            fiber: data.fiber || '0g',
+            good: data.good || 'Balanced Nutrient Profile',
+            bad: data.bad || 'None',
+            glycemicIndex: typeof data.glycemicIndex === 'number' ? data.glycemicIndex : 35,
+            sugarSpikeLevel: data.sugarSpikeLevel || undefined,
+            advice: data.advice || '',
+          } as MockFoodItem,
         };
       });
-      onData(items);
+
+      withTime.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      onData(withTime.map((entry) => entry.item));
     },
     (error) => {
-      handleFirestoreError(error, OperationType.LIST, collectionPath);
+      try {
+        handleFirestoreError(error, OperationType.LIST, collectionPath);
+      } catch (structuredErr) {
+        if (onError) {
+          onError(
+            structuredErr instanceof Error ? structuredErr : new Error(String(structuredErr))
+          );
+        }
+      }
     }
   );
 }

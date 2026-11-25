@@ -1,22 +1,22 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Lock, Mail, Sparkles, User, ShieldCheck, AlertCircle, ArrowRight } from 'lucide-react';
-import { signInWithGoogle } from '../firebase';
+import { Sparkles, ShieldCheck, AlertCircle, ExternalLink } from 'lucide-react';
+import { signInWithGoogle, formatFirebaseAuthError } from '../firebase';
 
 interface LoginScreenProps {
   onLogin: (userName: string, userEmail?: string, userPhoto?: string) => void;
 }
 
 export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
-  const [fullName, setFullName] = useState('');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
   const [isLoadingGoogle, setIsLoadingGoogle] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [showNewTabTip, setShowNewTabTip] = useState(false);
 
   // Real Firebase Google Sign-In
   const handleFirebaseGoogleLogin = async () => {
+    if (isLoadingGoogle) return;
     setAuthError(null);
+    setShowNewTabTip(false);
     setIsLoadingGoogle(true);
     try {
       const user = await signInWithGoogle();
@@ -26,31 +26,18 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
       onLogin(displayName, userEmail, photoURL);
     } catch (err: any) {
       console.warn('Firebase Google Auth error:', err);
-      if (err.code === 'auth/popup-closed-by-user') {
-        setAuthError('Sign-in cancelled. Please click "Continue with Google" again.');
-      } else if (err.code === 'auth/popup-blocked') {
-        setAuthError('Pop-up window was blocked by your browser. Please allow pop-ups for this site.');
-      } else {
-        setAuthError(err.message || 'Failed to authenticate with Google. You can also sign in below.');
+      const code = err?.code || '';
+      if (
+        code === 'auth/popup-blocked' ||
+        code === 'auth/web-storage-unsupported' ||
+        code === 'auth/internal-error'
+      ) {
+        setShowNewTabTip(true);
       }
+      setAuthError(formatFirebaseAuthError(err));
     } finally {
       setIsLoadingGoogle(false);
     }
-  };
-
-  // Optional manual email/password submit
-  const handleEmailSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    setAuthError(null);
-    let displayName = fullName.trim();
-    if (!displayName && email) {
-      const localPart = email.split('@')[0] || 'User';
-      displayName = localPart
-        .split(/[._-]/)
-        .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
-        .join(' ');
-    }
-    onLogin(displayName || 'Health Member', email || 'member@glycolens.health');
   };
 
   return (
@@ -77,8 +64,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
         <h2 className="text-2xl sm:text-3xl font-light tracking-tight text-white mb-1.5 font-display">
           GlycoLens Health
         </h2>
-        <p className="text-xs text-neutral-400 mb-6 max-w-xs mx-auto leading-relaxed">
-          AI nutrition analysis, live step burn, and continuous metabolic biomarker tracking.
+        <p className="text-xs text-neutral-400 mb-7 max-w-xs mx-auto leading-relaxed">
+          AI nutrition analysis, live step burn, and continuous metabolic biomarker tracking synced to your Google account.
         </p>
 
         {/* Error Alert Message */}
@@ -88,31 +75,43 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: 'auto' }}
               exit={{ opacity: 0, height: 0 }}
-              className="mb-4 p-3 rounded-2xl bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs flex items-start gap-2 text-left"
+              className="mb-5 p-3.5 rounded-2xl bg-rose-500/15 border border-rose-500/30 text-rose-200 text-xs flex flex-col gap-2 text-left"
             >
-              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
-              <span>{authError}</span>
+              <div className="flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                <span>{authError}</span>
+              </div>
+              {showNewTabTip && (
+                <a
+                  href={window.location.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-emerald-300 hover:text-emerald-200 font-semibold underline pl-6"
+                >
+                  <span>Open app in a full browser tab</span>
+                  <ExternalLink className="w-3 h-3" />
+                </a>
+              )}
             </motion.div>
           )}
         </AnimatePresence>
 
-        {/* 1. PRIMARY: FIREBASE GOOGLE SIGN-IN BUTTON */}
+        {/* PRIMARY: FIREBASE GOOGLE SIGN-IN BUTTON */}
         <motion.button
           type="button"
           disabled={isLoadingGoogle}
           whileHover={{ scale: 1.015 }}
           whileTap={{ scale: 0.985 }}
           onClick={handleFirebaseGoogleLogin}
-          className="w-full py-3.5 px-4 rounded-2xl bg-white hover:bg-neutral-100 text-neutral-800 font-semibold text-xs sm:text-sm tracking-wide shadow-lg flex items-center justify-center gap-3 cursor-pointer transition-all mb-4 border border-white/60 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed"
+          className="w-full py-4 px-5 rounded-2xl bg-white hover:bg-neutral-100 text-neutral-800 font-semibold text-sm tracking-wide shadow-lg flex items-center justify-center gap-3 cursor-pointer transition-all mb-5 border border-white/60 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed"
         >
           {isLoadingGoogle ? (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2.5">
               <div className="w-4 h-4 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin" />
               <span className="text-neutral-700">Connecting to Google...</span>
             </div>
           ) : (
             <>
-              {/* Official Google 'G' Logo SVG */}
               <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
                 <path
                   fill="#4285F4"
@@ -131,103 +130,34 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
                   d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z"
                 />
               </svg>
-              <span className="font-semibold text-neutral-900">Sign in with Google</span>
-              <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full ml-auto">
-                Firebase Auth
-              </span>
+              <span className="font-semibold text-neutral-900">Continue with Google</span>
             </>
           )}
         </motion.button>
 
-        {/* Divider */}
-        <div className="relative flex items-center justify-center my-4">
-          <div className="border-t border-white/10 w-full" />
-          <span className="bg-slate-950/80 px-3 text-[11px] uppercase tracking-wider text-neutral-500 shrink-0 font-medium">
-            or sign in manually
-          </span>
-          <div className="border-t border-white/10 w-full" />
+        {/* Feature highlights */}
+        <div className="p-4 rounded-2xl bg-white/[0.04] border border-white/10 text-left space-y-2 mb-5">
+          <div className="flex items-center gap-2 text-xs text-emerald-300 font-medium">
+            <Sparkles className="w-3.5 h-3.5 shrink-0" />
+            <span>Cloud-synced meal scans, sugar spikes & walking steps</span>
+          </div>
+          <p className="text-[11px] text-neutral-400 leading-relaxed pl-5">
+            Sign in with your Google account to save food logs and track your 7-day metabolic history across sessions.
+          </p>
         </div>
 
-        {/* 2. MANUAL EMAIL/PASSWORD OPTION */}
-        <form onSubmit={handleEmailSubmit} className="space-y-3.5 text-left">
-          {/* Full Name */}
-          <div className="space-y-1">
-            <label className="text-[11px] font-medium uppercase tracking-wider text-neutral-400 block pl-1">
-              Your Name
-            </label>
-            <div className="relative">
-              <User className="w-4 h-4 text-neutral-500 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-              <input
-                type="text"
-                placeholder="e.g. Athul Raj or your name"
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-                className="w-full pl-10 pr-4 py-2.5 rounded-2xl bg-white/[0.06] border border-white/10 text-xs sm:text-sm text-white placeholder-neutral-500 focus:outline-hidden focus:border-emerald-400/80 focus:ring-1 focus:ring-emerald-400/50 transition-all"
-              />
-            </div>
-          </div>
-
-          {/* Email */}
-          <div className="space-y-1">
-            <label className="text-[11px] font-medium uppercase tracking-wider text-neutral-400 block pl-1">
-              Account Email
-            </label>
-            <div className="relative">
-              <Mail className="w-4 h-4 text-neutral-500 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-              <input
-                type="email"
-                placeholder="Enter email ID"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                className="w-full pl-10 pr-4 py-2.5 rounded-2xl bg-white/[0.06] border border-white/10 text-xs sm:text-sm text-white placeholder-neutral-500 focus:outline-hidden focus:border-emerald-400/80 focus:ring-1 focus:ring-emerald-400/50 transition-all"
-              />
-            </div>
-          </div>
-
-          {/* Password */}
-          <div className="space-y-1">
-            <label className="text-[11px] font-medium uppercase tracking-wider text-neutral-400 block pl-1">
-              Password
-            </label>
-            <div className="relative">
-              <Lock className="w-4 h-4 text-neutral-500 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-              <input
-                type="password"
-                placeholder="Enter password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                className="w-full pl-10 pr-4 py-2.5 rounded-2xl bg-white/[0.06] border border-white/10 text-xs sm:text-sm text-white placeholder-neutral-500 focus:outline-hidden focus:border-emerald-400/80 focus:ring-1 focus:ring-emerald-400/50 transition-all"
-              />
-            </div>
-          </div>
-
-          <div className="pt-2">
-            <motion.button
-              type="submit"
-              whileHover={{ scale: 1.015 }}
-              whileTap={{ scale: 0.985 }}
-              className="w-full py-3 px-4 rounded-2xl bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 hover:from-emerald-400 hover:to-teal-400 text-white font-medium text-xs sm:text-sm tracking-wide shadow-lg shadow-emerald-500/25 flex items-center justify-center gap-2 cursor-pointer transition-all"
-            >
-              <span>Login to GlycoLens</span>
-              <Sparkles className="w-4 h-4 text-emerald-200" />
-            </motion.button>
-          </div>
-        </form>
-
-        {/* Quick Demo Instant Access */}
-        <div className="mt-5 pt-4 border-t border-white/10 flex items-center justify-between text-[11px] text-neutral-400">
+        {/* Footer: Firebase Status + Local Preview Fallback */}
+        <div className="pt-4 border-t border-white/10 flex items-center justify-between text-[11px] text-neutral-400">
           <span className="flex items-center gap-1.5">
             <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-            Firebase Project Active
+            Firebase Auth Secured
           </span>
           <button
             type="button"
             onClick={() => onLogin('Athul Raj P. R.', 'athulrajpr777@gmail.com')}
-            className="text-emerald-400 hover:text-emerald-300 font-semibold underline cursor-pointer"
+            className="text-emerald-400 hover:text-emerald-300 font-medium underline cursor-pointer"
           >
-            Instant Demo Sign In
+            Local Preview Mode
           </button>
         </div>
       </motion.div>

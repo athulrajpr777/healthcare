@@ -20,7 +20,7 @@ export const FoodScannerCard: React.FC<FoodScannerCardProps> = ({ onSaveToAnalyt
   const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [aiError, setAiError] = useState<string | null>(null);
-  const [analysisSource, setAnalysisSource] = useState<string>('gemini-3.8-flash');
+  const [analysisSource, setAnalysisSource] = useState<string>('gemini-vision');
   const [aiConfidence, setAiConfidence] = useState<number>(95);
   const [metabolicAdvice, setMetabolicAdvice] = useState<string>('');
 
@@ -137,7 +137,7 @@ export const FoodScannerCard: React.FC<FoodScannerCardProps> = ({ onSaveToAnalyt
         throw new Error(responseData?.error || 'AI vision analysis returned an error.');
       }
 
-      setAnalysisSource(responseData.source || 'gemini-3.8-flash');
+      setAnalysisSource(responseData.source || 'gemini-vision');
       setAiConfidence(responseData.data.confidence || 95);
       setMetabolicAdvice(
         responseData.data.advice ||
@@ -425,7 +425,7 @@ export const FoodScannerCard: React.FC<FoodScannerCardProps> = ({ onSaveToAnalyt
                       <RefreshCw className="w-6 h-6" />
                     </div>
                     <span className="text-xs font-bold uppercase tracking-wider text-emerald-300 mb-1">
-                      Gemini 3.8 Flash Vision Scanning
+                      Gemini Vision AI Scanning
                     </span>
                     <p className="text-sm font-medium text-white max-w-sm">
                       {scanStepText}
@@ -451,7 +451,7 @@ export const FoodScannerCard: React.FC<FoodScannerCardProps> = ({ onSaveToAnalyt
                         <span className="text-[11px] font-semibold text-emerald-800 bg-emerald-100/80 px-2.5 py-0.5 rounded-full border border-emerald-200 inline-flex items-center gap-1.5">
                           <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
                           <span>
-                            {analysisSource === 'gemini-3.8-flash'
+                            {analysisSource
                               ? `Gemini Vision AI Recognized (${aiConfidence}% confidence)`
                               : 'Optical Biomarker Decomposed'}
                           </span>

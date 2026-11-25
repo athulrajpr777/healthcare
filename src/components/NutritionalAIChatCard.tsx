@@ -328,7 +328,7 @@ export const NutritionalAIChatCard: React.FC<NutritionalAIChatCardProps> = ({
                 Context-Aware Nutritional AI
               </h3>
               <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100/70 border border-emerald-200/70 px-2 py-0.5 rounded-full">
-                Gemini 3.8 Flash
+                Gemini AI
               </span>
             </div>
             <p className="text-xs text-neutral-500">
@@ -476,7 +476,7 @@ export const NutritionalAIChatCard: React.FC<NutritionalAIChatCardProps> = ({
             className="flex items-center gap-2 p-3.5 rounded-2xl bg-white/80 border border-neutral-200 text-xs text-neutral-600 w-fit"
           >
             <div className="w-4 h-4 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
-            <span>Analyzing nutritional breakdown & glycemic spike with Gemini 3.8 Flash...</span>
+            <span>Analyzing nutritional breakdown & glycemic spike with Gemini AI...</span>
           </motion.div>
         )}
         <div ref={messagesEndRef} />
